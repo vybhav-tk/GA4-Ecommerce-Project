@@ -1,0 +1,101 @@
+// GA4 Ecommerce Analytics - Power BI Measures
+// Source: PowerBI-Dashboard project guide
+// Measures are grouped by the three business-question dashboards.
+
+// ============================================================
+// Dashboard 1: Acquisition Performance
+// Business question: Which channels bring us users and which convert?
+// Data source: fct_sessions
+// ============================================================
+
+Conversion Rate =
+DIVIDE(
+    SUM(fct_sessions[converted]),
+    COUNTROWS(fct_sessions)
+)
+
+
+// ============================================================
+// Dashboard 2: Purchase Funnel
+// Business question: Where do users drop off in the purchase journey?
+// Data source: fct_product_interactions
+// ============================================================
+
+Step 1 Views =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[user_pseudo_id]),
+    fct_product_interactions[event_name] = "view_item"
+)
+
+Step 2 Cart =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[user_pseudo_id]),
+    fct_product_interactions[event_name] = "add_to_cart"
+)
+
+Step 3 Checkout =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[user_pseudo_id]),
+    fct_product_interactions[event_name] = "begin_checkout"
+)
+
+Step 4 Purchase =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[user_pseudo_id]),
+    fct_product_interactions[event_name] = "purchase"
+)
+
+Cart to View % =
+DIVIDE(
+    [Step 2 Cart],
+    [Step 1 Views]
+)
+
+Checkout to Cart % =
+DIVIDE(
+    [Step 3 Checkout],
+    [Step 2 Cart]
+)
+
+Purchase to Checkout % =
+DIVIDE(
+    [Step 4 Purchase],
+    [Step 3 Checkout]
+)
+
+Overall Conversion % =
+DIVIDE(
+    [Step 4 Purchase],
+    [Step 1 Views]
+)
+
+
+// ============================================================
+// Dashboard 3: Product Performance
+// Business question: Which products have high interest but low conversion?
+// Data source: fct_product_interactions
+// ============================================================
+
+Product Views =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[session_id]),
+    fct_product_interactions[event_name] = "view_item"
+)
+
+Product Purchases =
+CALCULATE(
+    DISTINCTCOUNT(fct_product_interactions[session_id]),
+    fct_product_interactions[event_name] = "purchase"
+)
+
+View to Purchase Rate =
+DIVIDE(
+    [Product Purchases],
+    [Product Views]
+)
+
+Total Revenue =
+CALCULATE(
+    SUM(fct_product_interactions[revenue]),
+    fct_product_interactions[event_name] = "purchase"
+)
