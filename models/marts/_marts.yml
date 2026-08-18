@@ -1,0 +1,336 @@
+version: 2
+
+models:
+
+  # ─── FACT TABLES ────────────────────────────────────────────────────────────
+
+  - name: fct_product_interactions
+    description: >
+      One row per item per product event. Covers view_item (funnel_step=1),
+      add_to_cart (funnel_step=2), begin_checkout (funnel_step=3), and
+      purchase (funnel_step=4). Use for funnel drop-off analysis and
+      product-level performance. revenue is NULL for non-purchase rows
+      by design. Reads from int_ga4__product_events.
+      Answers business questions Q2 (funnel) and Q3 (products).
+    columns:
+      - name: interaction_id
+        description: "Surrogate key from event_id and item_id."
+        tests:
+          - unique
+          - not_null
+      - name: event_name
+        description: "GA4 event type: view_item, add_to_cart, begin_checkout, purchase."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['view_item', 'add_to_cart', 'begin_checkout', 'purchase']
+      - name: funnel_step
+        description: "Integer funnel position: 1=view_item 2=add_to_cart 3=begin_checkout 4=purchase."
+        tests:
+          - not_null
+      - name: item_id
+        description: "Product SKU. FK to dim_products."
+        tests:
+          - not_null
+      - name: item_name
+        description: "Product display name. Denormalised for query convenience."
+      - name: item_category
+        description: "Primary product category."
+      - name: item_brand
+        description: "Product brand."
+      - name: item_variant
+        description: "Product variant such as size or colour."
+      - name: price
+        description: "Unit price at time of this event."
+      - name: quantity
+        description: "Units. Typically 1 for view_item, variable for add_to_cart and purchase."
+      - name: revenue
+        description: >
+          Item revenue (price x quantity). NULL for view_item, add_to_cart,
+          begin_checkout. Populated only for purchase events. This is correct.
+      - name: user_pseudo_id
+        description: "Pseudonymous user identifier. FK to dim_users."
+        tests:
+          - not_null
+      - name: session_id
+        description: "Session identifier. FK to fct_sessions."
+      - name: interaction_date
+        description: "Date of the interaction. Partition key. FK to dim_date."
+        tests:
+          - not_null
+      - name: interacted_at
+        description: "Exact UTC timestamp."
+      - name: device_category
+        description: "Device used: desktop, mobile, tablet. FK to dim_device."
+      - name: device_operating_system
+        description: "Operating system."
+      - name: geo_country
+        description: "Country of the user."
+      - name: traffic_source
+        description: "User-level first-touch traffic source. FK to dim_traffic_source."
+      - name: traffic_medium
+        description: "User-level first-touch traffic medium."
+      - name: traffic_campaign
+        description: "User-level first-touch campaign name."
+
+  - name: fct_purchases
+    description: >
+      One row per completed purchase transaction. Grain is the transaction,
+      not the individual item. item_count and total_quantity come from the
+      ecommerce struct fields on the GA4 event which are already transaction-level
+      aggregates. For item-level purchase detail, use fct_product_interactions
+      filtered to event_name = 'purchase'. Reads from int_ga4__product_events.
+      Answers business questions Q1 (acquisition) and Q3 (products).
+    columns:
+      - name: purchase_id
+        description: "Surrogate key from event_id."
+        tests:
+          - unique
+          - not_null
+      - name: transaction_id
+        description: "GA4 transaction identifier. Natural key."
+      - name: user_pseudo_id
+        description: "User who completed the purchase. FK to dim_users."
+        tests:
+          - not_null
+      - name: session_id
+        description: "Session in which the purchase occurred. FK to fct_sessions."
+      - name: purchase_date
+        description: "Date of the purchase. Partition key. FK to dim_date."
+        tests:
+          - not_null
+      - name: purchased_at
+        description: "Exact UTC timestamp of the purchase."
+      - name: revenue
+        description: "Total transaction revenue in native currency from ecommerce.purchase_revenue."
+      - name: revenue_usd
+        description: "Total transaction revenue in USD from ecommerce.purchase_revenue_in_usd."
+      - name: item_count
+        description: "Distinct product SKU count from ecommerce.unique_items."
+      - name: total_quantity
+        description: "Total units across all items from ecommerce.total_item_quantity."
+      - name: device_category
+        description: "Device used. FK to dim_device."
+      - name: device_operating_system
+        description: "Operating system used."
+      - name: geo_country
+        description: "Country of the user."
+      - name: traffic_source
+        description: "User-level first-touch traffic source. FK to dim_traffic_source."
+      - name: traffic_medium
+        description: "User-level first-touch traffic medium."
+      - name: traffic_campaign
+        description: "User-level first-touch campaign name."
+
+  - name: fct_sessions
+    description: >
+      One row per session. Sessions are reconstructed from GA4 events as GA4
+      does not export a sessions table. A session is the unique combination of
+      user_pseudo_id and ga_session_id. Contains event counts, engagement metrics,
+      and the conversion flag. session_source and session_medium are session-level
+      attribution from event_params. traffic_source and traffic_medium are
+      user-level first-touch attribution. Use session_source for channel analysis.
+      Use traffic_source for acquisition cohort analysis. Reads from int_ga4__sessions.
+      Answers business question Q1 (acquisition and conversion by channel).
+    columns:
+      - name: session_id
+        description: "Natural key: CONCAT(user_pseudo_id, '_', ga_session_id)."
+        tests:
+          - unique
+          - not_null
+      - name: user_pseudo_id
+        description: "User who owns this session. FK to dim_users."
+        tests:
+          - not_null
+      - name: session_date
+        description: "Date the session started. Partition key. FK to dim_date."
+        tests:
+          - not_null
+      - name: session_start_at
+        description: "Timestamp of the first event in the session."
+      - name: session_end_at
+        description: "Timestamp of the last event in the session."
+      - name: session_duration_seconds
+        description: "Seconds between first and last event."
+      - name: session_number
+        description: "Which session this is for the user. 1 = first ever session."
+      - name: session_engaged
+        description: "1 if GA4 considers this an engaged session, 0 if bounce."
+      - name: total_engagement_ms
+        description: "Sum of engagement_time_msec across all events in the session."
+      - name: event_count
+        description: "Total events fired in this session."
+      - name: page_view_count
+        description: "page_view events in this session."
+      - name: product_view_count
+        description: "view_item events in this session."
+      - name: add_to_cart_count
+        description: "add_to_cart events in this session."
+      - name: checkout_count
+        description: "begin_checkout events in this session."
+      - name: purchase_count
+        description: "purchase events in this session."
+      - name: converted
+        description: >
+          1 if this session resulted in a purchase (purchase_count > 0), 0 otherwise.
+          Conversion rate = SUM(converted) / COUNT(session_id).
+      - name: device_category
+        description: "Device category. FK to dim_device."
+      - name: device_operating_system
+        description: "Operating system."
+      - name: device_browser
+        description: "Browser."
+      - name: geo_country
+        description: "Country of the user."
+      - name: session_source
+        description: >
+          Session-level traffic source from event_params on session_start.
+          Use this for channel performance analysis. Reflects where this specific
+          session originated. Different from traffic_source which is first-touch only.
+      - name: session_medium
+        description: "Session-level medium. Use for channel performance analysis."
+      - name: session_campaign
+        description: "Session-level campaign name."
+      - name: traffic_source
+        description: "User-level first-touch source. Use for acquisition cohort analysis."
+      - name: traffic_medium
+        description: "User-level first-touch medium."
+      - name: traffic_campaign
+        description: "User-level first-touch campaign."
+
+  # ─── DIMENSION TABLES ───────────────────────────────────────────────────────
+
+  - name: dim_users
+    description: >
+      One row per user_pseudo_id. Built from the first observed event per user
+      using MIN(event_timestamp) to identify the earliest record.
+      Contains first-touch acquisition attributes and GA4 lifetime value fields.
+      Note: user_ltv fields may be NULL in the obfuscated sample dataset.
+    columns:
+      - name: user_pseudo_id
+        description: "Pseudonymous user identifier. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: first_visit_date
+        description: "Date of the user's first observed event in the dataset."
+      - name: first_visit_at
+        description: "Timestamp of the user's first observed event."
+      - name: acquisition_source
+        description: "First-touch traffic source from traffic_source.source."
+      - name: acquisition_medium
+        description: "First-touch traffic medium from traffic_source.medium."
+      - name: acquisition_campaign
+        description: "First-touch campaign name from traffic_source.name."
+      - name: user_ltv_revenue
+        description: "Lifetime revenue per GA4 from user_ltv.revenue. May be NULL in sample dataset."
+      - name: user_ltv_currency
+        description: "Currency code for LTV from user_ltv.currency. May be NULL in sample dataset."
+
+  - name: dim_products
+    description: >
+      One row per item_id. Built by deduplicating item_id values seen across
+      all product events (view_item, add_to_cart, begin_checkout, purchase)
+      and taking the most recently observed non-null values for name and category.
+      GA4 does not export a product catalogue so this dimension is derived from
+      event-level item records. If a product name changes in GA4 over time this
+      dimension reflects the most recent name seen in the dataset.
+    columns:
+      - name: item_id
+        description: "Product SKU. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: item_name
+        description: "Most recently observed product display name."
+      - name: item_brand
+        description: "Product brand."
+      - name: item_category
+        description: "Primary product category."
+      - name: item_category_2
+        description: "Secondary product category."
+      - name: item_variant
+        description: "Product variant such as size or colour."
+
+  - name: dim_date
+    description: >
+      One row per calendar date covering the full dataset range 2020-11-01 to
+      2021-01-31. Built from the dim_date seed CSV file — not derived from GA4
+      event data. Used as a date spine for time-based analysis in all three
+      fact tables via purchase_date, interaction_date, and session_date.
+    columns:
+      - name: date_day
+        description: "The calendar date. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: year
+        description: "Calendar year."
+      - name: quarter
+        description: "Calendar quarter: 1, 2, 3, or 4."
+      - name: month
+        description: "Calendar month number: 1 through 12."
+      - name: month_name
+        description: "Month name: January through December."
+      - name: week_of_year
+        description: "ISO week number."
+      - name: day_of_week
+        description: "ISO day of week: 1=Monday, 7=Sunday."
+      - name: day_name
+        description: "Day name: Monday through Sunday."
+      - name: is_weekend
+        description: "TRUE if Saturday or Sunday, FALSE otherwise."
+
+  - name: dim_device
+    description: >
+      One row per unique combination of device_category, operating_system,
+      and browser. Built by deduplicating these three fields across all events.
+      Low-cardinality dimension — expect fewer than 50 rows in this dataset.
+      device_key is a surrogate generated from the three fields.
+    columns:
+      - name: device_key
+        description: "Surrogate key generated from device_category, operating_system, browser."
+        tests:
+          - unique
+          - not_null
+      - name: device_category
+        description: "Device type: desktop, mobile, tablet."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['desktop', 'mobile', 'tablet']
+      - name: operating_system
+        description: "Operating system: Windows, iOS, Android, Macintosh, etc."
+      - name: browser
+        description: "Browser: Chrome, Safari, Firefox, etc."
+      - name: mobile_brand_name
+        description: "Mobile device brand such as Apple or Samsung. NULL for desktop."
+
+  - name: dim_traffic_source
+    description: >
+      One row per unique source and medium combination. Built by deduplicating
+      traffic_source.source and traffic_source.medium across all events.
+      Includes a channel_grouping column that maps source/medium combinations
+      to human-readable channel labels used in dashboards. Campaign is not
+      included in the grain of this dimension because campaigns are transient —
+      a new campaign name does not warrant a new dimension row. Campaign names
+      are stored directly on the fact tables.
+    columns:
+      - name: traffic_source_key
+        description: "Surrogate key generated from source and medium."
+        tests:
+          - unique
+          - not_null
+      - name: source
+        description: "Traffic source from traffic_source.source. e.g. google, facebook.com, (direct)."
+      - name: medium
+        description: "Traffic medium from traffic_source.medium. e.g. organic, cpc, referral, (none)."
+      - name: channel_grouping
+        description: >
+          Business-friendly channel label derived from source and medium.
+          Values: Direct, Organic Search, Paid Search, Referral, Email, Social, Other.
+          Logic: Direct = source (direct) AND medium in ((none),(not set)).
+          Organic Search = medium organic. Paid Search = medium cpc.
+          Referral = medium referral. Email = medium email.
+          Social = medium social/social-network OR source in known social domains.
+          Other = everything else.

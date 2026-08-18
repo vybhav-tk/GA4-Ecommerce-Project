@@ -1,0 +1,24 @@
+ga4_ecommerce:
+  target: dev
+  outputs:
+    dev:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: dbt_ga4_dev
+      keyfile: "{{ env_var('DBT_BIGQUERY_KEYFILE') }}"
+      threads: 4
+      job_execution_timeout_seconds: 300
+      location: US
+      priority: interactive
+
+    prod:
+      type: bigquery
+      method: service-account
+      project: "{{ env_var('GCP_PROJECT_ID') }}"
+      dataset: dbt_ga4
+      keyfile: "{{ env_var('DBT_BIGQUERY_KEYFILE') }}"
+      threads: 4
+      job_execution_timeout_seconds: 300
+      location: US
+      priority: interactive
