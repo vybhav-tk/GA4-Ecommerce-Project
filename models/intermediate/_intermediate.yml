@@ -1,0 +1,169 @@
+version: 2
+
+models:
+
+  - name: int_ga4__product_events
+    description: >
+      One row per item per product event. Joins stg_ga4__events to stg_ga4__items
+      on event_id. Filters to the four funnel events: view_item, add_to_cart,
+      begin_checkout, purchase. Assigns a funnel_step integer to each event type.
+      This model feeds both fct_product_interactions and fct_purchases so that
+      the item-to-event join logic is written once and not duplicated across two
+      mart models. item_revenue is NULL for non-purchase funnel steps by design.
+    columns:
+      - name: event_id
+        description: "FK to stg_ga4__events."
+        tests:
+          - not_null
+      - name: item_id
+        description: "Product SKU from items[].item_id."
+        tests:
+          - not_null
+      - name: event_name
+        description: "GA4 event name: view_item, add_to_cart, begin_checkout, purchase."
+        tests:
+          - not_null
+          - accepted_values:
+              values: ['view_item', 'add_to_cart', 'begin_checkout', 'purchase']
+      - name: funnel_step
+        description: "Integer funnel position: 1=view_item, 2=add_to_cart, 3=begin_checkout, 4=purchase."
+        tests:
+          - not_null
+      - name: user_pseudo_id
+        description: "Pseudonymous user identifier from the parent event."
+        tests:
+          - not_null
+      - name: session_id
+        description: "Constructed session identifier."
+      - name: event_date
+        description: "Date of the event as a DATE type."
+      - name: event_timestamp_utc
+        description: "Exact event timestamp as UTC TIMESTAMP."
+      - name: item_name
+        description: "Product display name from items[].item_name."
+      - name: item_brand
+        description: "Product brand from items[].item_brand."
+      - name: item_category
+        description: "Primary product category from items[].item_category."
+      - name: item_category_2
+        description: "Secondary product category from items[].item_category2."
+      - name: item_variant
+        description: "Product variant such as size or colour."
+      - name: price
+        description: "Unit price at time of this event from items[].price."
+      - name: quantity
+        description: "Units in this event from items[].quantity. Typically 1 for view_item."
+      - name: item_revenue
+        description: >
+          Revenue from this item (items[].item_revenue). NULL for view_item,
+          add_to_cart, begin_checkout. Populated only on purchase events.
+          This is correct by design.
+      - name: transaction_id
+        description: "GA4 transaction ID from ecommerce struct. Populated only on purchase events."
+      - name: purchase_revenue
+        description: "Total transaction revenue. Populated only on purchase events."
+      - name: purchase_revenue_usd
+        description: "Total transaction revenue in USD. Populated only on purchase events."
+      - name: unique_items
+        description: "Distinct product count for the transaction. Populated only on purchase events."
+      - name: total_item_quantity
+        description: "Total units across all items. Populated only on purchase events."
+      - name: device_category
+        description: "Device category from parent event: desktop, mobile, tablet."
+      - name: device_operating_system
+        description: "Operating system from parent event."
+      - name: geo_country
+        description: "Country from parent event geo record."
+      - name: traffic_source
+        description: "User-level first-touch traffic source."
+      - name: traffic_medium
+        description: "User-level first-touch traffic medium."
+      - name: traffic_campaign
+        description: "User-level first-touch campaign name."
+
+  - name: int_ga4__session_traffic
+    description: >
+      One row per session containing session-level traffic attribution extracted
+      from event_params on session_start events. This is distinct from the
+      user-level traffic_source field which records first-touch acquisition only.
+      Session-level traffic reflects where each specific session originated,
+      which may differ from the user's original acquisition source.
+    columns:
+      - name: session_id
+        description: "Session identifier. Primary key."
+        tests:
+          - unique
+          - not_null
+      - name: session_source
+        description: "Traffic source for this session from event_params[key='source'] on session_start."
+      - name: session_medium
+        description: "Traffic medium for this session from event_params[key='medium'] on session_start."
+      - name: session_campaign
+        description: "Campaign for this session from event_params[key='campaign'] on session_start."
+
+  - name: int_ga4__sessions
+    description: >
+      One row per reconstructed session. GA4 does not export a sessions table.
+      Sessions are derived by grouping all events sharing the same session key
+      (user_pseudo_id + ga_session_id from event_params). Aggregates event counts,
+      engagement metrics, and the conversion flag per session. Joins
+      int_ga4__session_traffic to add session-level traffic attribution.
+      This model feeds fct_sessions directly.
+    columns:
+      - name: session_id
+        description: "Natural key: CONCAT(user_pseudo_id, '_', CAST(ga_session_id AS STRING))."
+        tests:
+          - unique
+          - not_null
+      - name: user_pseudo_id
+        description: "User who owns this session."
+        tests:
+          - not_null
+      - name: session_date
+        description: "Date of the first event in this session."
+      - name: session_start_at
+        description: "Timestamp of the first event in this session."
+      - name: session_end_at
+        description: "Timestamp of the last event in this session."
+      - name: session_duration_seconds
+        description: "Seconds between first and last event in session."
+      - name: session_number
+        description: "Which session this is for the user. 1 = first ever session."
+      - name: session_engaged
+        description: "1 if GA4 considers this an engaged session, 0 if bounce."
+      - name: total_engagement_ms
+        description: "Sum of engagement_time_msec across all events in the session."
+      - name: event_count
+        description: "Total events fired in this session."
+      - name: page_view_count
+        description: "Number of page_view events in this session."
+      - name: product_view_count
+        description: "Number of view_item events in this session."
+      - name: add_to_cart_count
+        description: "Number of add_to_cart events in this session."
+      - name: checkout_count
+        description: "Number of begin_checkout events in this session."
+      - name: purchase_count
+        description: "Number of purchase events in this session."
+      - name: converted
+        description: "1 if purchase_count > 0, 0 otherwise."
+      - name: device_category
+        description: "Device category used in this session."
+      - name: device_operating_system
+        description: "Operating system used in this session."
+      - name: device_browser
+        description: "Browser used in this session."
+      - name: geo_country
+        description: "Country of the user in this session."
+      - name: session_source
+        description: "Session-level traffic source from int_ga4__session_traffic."
+      - name: session_medium
+        description: "Session-level traffic medium."
+      - name: session_campaign
+        description: "Session-level campaign name."
+      - name: traffic_source
+        description: "User-level first-touch traffic source. Set at first visit, never changes."
+      - name: traffic_medium
+        description: "User-level first-touch traffic medium."
+      - name: traffic_campaign
+        description: "User-level first-touch campaign name."

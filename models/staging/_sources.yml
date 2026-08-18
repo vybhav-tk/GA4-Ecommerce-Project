@@ -1,0 +1,15 @@
+version: 2
+
+sources:
+  - name: ga4_ecommerce
+    description: "Raw GA4 event export from the Google Merchandise Store in BigQuery"
+    project: bigquery-public-data
+    dataset: ga4_obfuscated_sample_ecommerce
+    tables:
+      - name: events
+        identifier: events_*
+        description: >
+          Daily GA4 event tables. Each row is one event fired by one user.
+          Event parameters are stored in a nested array (event_params).
+          Product data is stored in a nested array (items).
+          Tables are named events_YYYYMMDD and queried using wildcard.
