@@ -173,7 +173,6 @@ Included:
 
 Not included:
 
-- Vanna AI / conversational analytics
 - Google service-account keys or any secrets
 - Local Python virtual environments
 - dbt generated artifacts
